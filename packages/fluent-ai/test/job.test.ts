@@ -5,7 +5,6 @@ import {
   openai,
   fal,
   type Job,
-  user,
   voyage,
 } from "~/src/index";
 import { Runner } from "~/src/job/runner";
@@ -16,7 +15,7 @@ test("chat job", () => {
     type: "chat",
     input: {
       model: "test-model",
-      messages: [{ role: "user", content: "hello" }],
+      messages: [{ role: "user", text: "hello" }],
     },
   };
 
@@ -27,7 +26,7 @@ test("chat job", () => {
   expect(job).toEqual(
     openrouter()
       .chat("test-model")
-      .messages([user("hello")])
+      .messages([{ role: "user", text: "hello" }])
       .build(),
   );
 });
@@ -96,7 +95,7 @@ test("runner", () => {
     type: "chat",
     input: {
       model: "test-model",
-      messages: [{ role: "user", content: "hello" }],
+      messages: [{ role: "user", text: "hello" }],
     },
   };
 

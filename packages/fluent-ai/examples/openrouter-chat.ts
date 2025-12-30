@@ -7,8 +7,8 @@ const job: Job = {
   input: {
     model: "google/gemini-2.5-flash",
     messages: [
-      { role: "system", content: "You are a helpful assistant." },
-      { role: "user", content: "Hi" },
+      { role: "system", text: "You are a helpful assistant." },
+      { role: "user", text: "Hi" },
     ],
   },
 };

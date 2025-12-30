@@ -33,7 +33,15 @@ export const runner = {
 
     return createHTTPJob(request, async (response: Response) => {
       if (input.stream) {
-        return createStreamingGenerator(response);
+        return createStreamingGenerator(response, (chunk: any) => {
+          const choice = chunk.choices[0];
+          const delta = choice.delta;
+          return {
+            text: delta.content,
+            toolCalls: delta.tool_calls,
+            usage: transformUsageData(chunk.usage),
+          };
+        });
       }
 
       const data = await response.json();

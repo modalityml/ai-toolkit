@@ -1,5 +1,4 @@
-import { EventSourceParserStream } from "eventsource-parser/stream";
-import type { ChatTool } from "~/src/job/schema";
+import type { ChatTool, MessageChunk } from "~/src/job/schema";
 
 export function getApiKey(
   options: { apiKey?: string } | undefined,
@@ -29,22 +28,39 @@ export function transformUsageData(usage?: any) {
     : undefined;
 }
 
-export async function* createStreamingGenerator(response: Response) {
-  const eventStream = response
-    .body!.pipeThrough(new TextDecoderStream())
-    .pipeThrough(new EventSourceParserStream());
-  const reader = eventStream.getReader();
+export async function* createStreamingGenerator(
+  response: Response,
+  convertChunk: (chunk: any) => MessageChunk,
+) {
+  const decoder = new TextDecoder("utf-8");
+  const reader = response.body!.getReader();
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done || value.data === "[DONE]") {
-        break;
-      }
-      const chunk = JSON.parse(value.data);
-      yield { raw: chunk };
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
     }
-  } finally {
-    reader.releaseLock();
+
+    const decoded = decoder.decode(value, { stream: true });
+    const lines = decoded.split("\n");
+    for (const line of lines) {
+      if (line.startsWith(":")) {
+        continue;
+      }
+
+      let chunk = line.trim();
+      if (chunk.startsWith("data: ")) {
+        chunk = chunk.replace("data: ", "").trim();
+      }
+
+      if (chunk === "[DONE]") {
+        return;
+      }
+
+      if (chunk) {
+        const parsed = JSON.parse(chunk); // let parse error throw
+        yield convertChunk(parsed);
+      }
+    }
   }
 }

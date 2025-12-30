@@ -1,9 +1,12 @@
-import type { ChatJob, ModelsJob } from "~/src/job/schema";
+import type {
+  ChatJob,
+  ModelsJob,
+  EmbeddingJob,
+  Message,
+  ChatTool,
+} from "~/src/job/schema";
 import { createHTTPJob } from "~/src/job/http";
-import {
-  transformToolsToFunctions,
-  createStreamingGenerator,
-} from "~/src/job/utils";
+import { createStreamingGenerator } from "~/src/job/utils";
 
 const DEFAULT_BASE_URL = "http://localhost:11434";
 
@@ -11,10 +14,97 @@ function getBaseUrl(options?: ChatJob["options"]): string {
   return options?.baseUrl || process.env.OLLAMA_BASE_URL || DEFAULT_BASE_URL;
 }
 
+function convertMessages(messages: Message[]) {
+  let result = [];
+
+  for (const message of messages) {
+    if (message.role === "tool") {
+      result.push({
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          {
+            id: message.content.callId,
+            type: "function",
+            function: {
+              name: message.content.name,
+              arguments: message.content.args,
+            },
+          },
+        ],
+      });
+
+      if (message.content.result) {
+        result.push({
+          role: "tool",
+          tool_call_id: message.content.callId,
+          content: JSON.stringify(message.content.result),
+        });
+      } else if (message.content.error) {
+        result.push({
+          role: "tool",
+          tool_call_id: message.content.callId,
+          content: JSON.stringify(message.content.error),
+        });
+      }
+    } else {
+      result.push({ role: message.role, content: message.text });
+    }
+  }
+
+  return result;
+}
+
+function convertTools(tools?: ChatTool[]) {
+  return tools?.map((tool: ChatTool) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input,
+    },
+  }));
+}
+
+interface OllamaChunk {
+  model: string;
+  createdAt: string;
+  message: {
+    role: string;
+    content: string;
+    thinking: string;
+    tool_calls?: {
+      id: string;
+      function: {
+        index: number;
+        name: string;
+        arguments: any;
+      };
+    }[];
+  };
+  done: boolean;
+  done_reason?: "stop";
+  total_duration?: number;
+  load_duration?: number;
+  prompt_eval_count?: number;
+  prompt_eval_duration?: number;
+  eval_count?: number;
+  eval_duration?: number;
+}
+
+function convertChunk(chunk: OllamaChunk) {
+  return {
+    text: chunk.message.content,
+    reasoning: chunk.message.thinking,
+    toolCalls: chunk.message.tool_calls,
+  };
+}
+
 export const runner = {
   chat: async (input: ChatJob["input"], options?: ChatJob["options"]) => {
     const baseUrl = getBaseUrl(options);
-    const tools = transformToolsToFunctions(input.tools);
+    const tools = convertTools(input.tools);
+    const messages = convertMessages(input.messages);
 
     const request = new Request(`${baseUrl}/api/chat`, {
       method: "POST",
@@ -23,19 +113,16 @@ export const runner = {
       },
       body: JSON.stringify({
         model: input.model,
-        messages: input.messages,
-        temperature: input.temperature,
+        messages: messages,
         tools: tools,
+        temperature: input.temperature,
         stream: input.stream ?? false,
-        options: {
-          num_predict: input.maxTokens,
-        },
       }),
     });
 
     return createHTTPJob(request, async (response: Response) => {
       if (input.stream) {
-        return createStreamingGenerator(response);
+        return createStreamingGenerator(response, convertChunk);
       }
 
       const data = await response.json();
@@ -80,6 +167,32 @@ export const runner = {
         id: model.name,
         name: model.name,
       }));
+    });
+  },
+
+  embedding: async (
+    input: EmbeddingJob["input"],
+    options?: EmbeddingJob["options"],
+  ) => {
+    const baseUrl = getBaseUrl(options);
+
+    const request = new Request(`${baseUrl}/api/embed`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: input.model,
+        input: input.input,
+      }),
+    });
+
+    return createHTTPJob(request, async (response: Response) => {
+      const data = await response.json();
+
+      return {
+        embeddings: data.embeddings,
+      };
     });
   },
 };

@@ -1,31 +1,76 @@
 import { z } from "zod";
 
+const systemMessageSchema = z.object({
+  role: z.literal("system"),
+  text: z.string(),
+});
+
+// TODO: support attaching files, images, etc.
+const userMessageSchema = z.object({
+  id: z.string().optional(),
+  role: z.literal("user"),
+  text: z.string(),
+});
+
+const assistantMessageSchema = z.object({
+  id: z.string().optional(),
+  role: z.literal("assistant"),
+  text: z.string().optional(),
+  reasoning: z.string().optional(),
+});
+
+const toolMessageSchema = z.object({
+  id: z.string().optional(),
+  role: z.literal("tool"),
+  text: z.string(),
+  content: z.object({
+    callId: z.string(),
+    name: z.string(),
+    args: z.any().optional(),
+    result: z.any().optional(),
+    error: z.any().optional(),
+  }),
+});
+
+const messagesSchema = z.union([
+  systemMessageSchema,
+  userMessageSchema,
+  assistantMessageSchema,
+  toolMessageSchema,
+]);
+
+const messageChunkSchema = z.object({
+  text: z.string().optional(),
+  reasoning: z.string().optional(),
+  toolCalls: z
+    .array(
+      z.object({
+        id: z.string(),
+        function: z.object({
+          name: z.string(),
+          arguments: z.any(),
+        }),
+      }),
+    )
+    .optional(),
+});
+
+export type SystemMessage = z.infer<typeof systemMessageSchema>;
+export type UserMessage = z.infer<typeof userMessageSchema>;
+export type AssistantMessage = z.infer<typeof assistantMessageSchema>;
+export type ToolMessage = z.infer<typeof toolMessageSchema>;
+export type Message = z.infer<typeof messagesSchema>;
+export type MessageChunk = z.infer<typeof messageChunkSchema>;
+
 const chatToolSchema = z.object({
   name: z.string(),
   description: z.string(),
   input: z.any(), // TODO: should be valid json schema
 });
 
-const messagePartSchema = z.object({
-  type: z.string(),
-  text: z.string().optional(),
-  toolCallId: z.string().optional(),
-  input: z.any().optional(),
-  output: z.any().optional(),
-  outputError: z.any().optional(),
-});
-
-const messageSchema = z.object({
-  role: z.enum(["system", "user", "assistant", "tool"]),
-  parts: z.array(messagePartSchema),
-  id: z.string().optional(),
-  threadId: z.string().optional(),
-  createdAt: z.date().optional(),
-});
-
 const chatInputSchema = z.object({
   model: z.string(),
-  messages: z.array(z.any()), // TODO: fix any
+  messages: z.array(messagesSchema),
   temperature: z.number().optional(),
   maxTokens: z.number().optional(),
   stream: z.boolean().optional(),
@@ -125,7 +170,7 @@ export const modelsJobSchema = z.object({
 
 export const embeddingJobSchema = z.object({
   type: z.literal("embedding"),
-  provider: z.enum(["voyage"]),
+  provider: z.enum(["voyage", "ollama"]),
   options: optionsSchema.optional(),
   input: embeddingInputSchema,
   output: embeddingOutputSchema.optional(),
@@ -138,8 +183,6 @@ export const jobSchema = z.union([
   embeddingJobSchema,
 ]);
 
-export type MessagePart = z.infer<typeof messagePartSchema>;
-export type Message = z.infer<typeof messageSchema>;
 export type ChatTool = z.infer<typeof chatToolSchema>;
 export type Job = z.infer<typeof jobSchema>;
 export type ImageJob = z.infer<typeof imageJobSchema>;

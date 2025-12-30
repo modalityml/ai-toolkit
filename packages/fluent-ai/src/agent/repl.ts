@@ -1,26 +1,49 @@
 import * as readline from "node:readline/promises";
 import type { Agent } from "~/src/agent/agent";
-import type { Message, MessagePart } from "~/src/job/schema";
+import type { Message, UserMessage } from "~/src/job/schema";
 
-export async function agentReplInput(): Promise<Message> {
+function newId() {
+  return String(Math.floor(Math.random() * 1_000_000_000));
+}
+
+export async function agentReplInput(): Promise<UserMessage> {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
   });
-  const userInput = await rl.question("\nYou: ");
+  const input = await rl.question("\nYou: ");
   rl.close();
 
-  const newMessage = {
-    role: "user" as const,
-    parts: [
-      {
-        type: "text",
-        text: userInput,
-      },
-    ],
-  };
+  return { id: newId(), role: "user", text: input };
+}
 
-  return newMessage;
+export async function inspectAgentStream(stream: AsyncIterable<any>) {
+  const newMessages = [];
+  for await (const event of stream) {
+    if (event.type === "chunk") {
+      if (event.chunk.reasoning) {
+        process.stdout.write("\x1b[90m");
+        process.stdout.write(event.chunk.reasoning);
+      } else if (event.chunk.text) {
+        process.stdout.write("\x1b[0m");
+        process.stdout.write(event.chunk.text);
+      }
+    } else if (event.type === "tool") {
+      process.stdout.write("\x1b[0m");
+      if (event.tool.result) {
+        console.log(
+          `tool ${event.tool.name} with result: ${JSON.stringify(event.tool.result)}`,
+        );
+      } else {
+        console.log(
+          `tool ${event.tool.name} with arguments: ${JSON.stringify(event.tool.args)}`,
+        );
+      }
+    } else if (event.type === "message") {
+      newMessages.push(event.message);
+    }
+  }
+  return newMessages;
 }
 
 export async function agentRepl(agent: Agent) {
@@ -29,24 +52,9 @@ export async function agentRepl(agent: Agent) {
     const userMessage = await agentReplInput();
     allMessages = allMessages.concat([userMessage]);
     const stream = agent.generate(allMessages, { maxSteps: 8 });
-    for await (const event of stream) {
-      if (event.type === "text-delta") {
-        process.stdout.write((event.data as any).text);
-      } else if (event.type === "tool-call-input") {
-        const toolPart = event.data as MessagePart;
-        console.log(
-          `\n[Calling tool ${toolPart.type} with input: ${JSON.stringify(toolPart.input)}]`,
-        );
-      } else if (event.type === "tool-call-output") {
-        const toolPart = event.data as MessagePart;
-        console.log(
-          `\n[Calling tool ${toolPart.type} with output: ${JSON.stringify(toolPart.output || toolPart.outputError)}]`,
-        );
-      } else if (event.type === "message-created") {
-        const data = event.data as Message;
-        allMessages = allMessages.concat([data]);
-      }
-    }
+
+    const newMessages = await inspectAgentStream(stream);
+    allMessages = allMessages.concat(newMessages);
     console.log();
   }
 }

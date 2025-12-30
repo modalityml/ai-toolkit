@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type ChatJob, type ChatTool } from "~/src/job/schema";
+import { type ChatJob, type ChatTool, type Message } from "~/src/job/schema";
 
 export class ChatBuilder<TProvider extends string = string> {
   private provider: TProvider;
@@ -14,12 +14,12 @@ export class ChatBuilder<TProvider extends string = string> {
     this.input.model = model;
   }
 
-  messages(messages: Array<{ role: string; content: string }>): this {
+  messages(messages: Message[]) {
     this.input.messages = messages;
     return this;
   }
 
-  tool(tool: ChatTool): this {
+  tool(tool: ChatTool) {
     if (!this.input.tools) {
       this.input.tools = [];
     }
@@ -27,7 +27,7 @@ export class ChatBuilder<TProvider extends string = string> {
     return this;
   }
 
-  tools(tools: ChatTool[]): this {
+  tools(tools: ChatTool[]) {
     if (!this.input.tools) {
       this.input.tools = [];
     }
@@ -53,35 +53,6 @@ export class ChatBuilder<TProvider extends string = string> {
     const job = this.build();
     return this.runner.chat(job.input, job.options);
   }
-}
-
-export function user(content: string) {
-  return { role: "user", content: content };
-}
-
-export function assistant(content: string) {
-  return { role: "assistant", content: content };
-}
-
-export function system(content: string) {
-  return { role: "system", content: content };
-}
-
-export function text(result: any) {
-  if (result.raw) {
-    if (result.raw.candidates) {
-      return result.raw.candidates[0].content.parts[0].text;
-    }
-
-    if (result.raw.choices[0].message) {
-      return result.raw.choices[0].message.content;
-    }
-
-    if (result.raw.choices[0].delta.content) {
-      return result.raw.choices[0].delta.content;
-    }
-  }
-  return "";
 }
 
 class ChatToolBuilder {

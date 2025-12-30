@@ -8,6 +8,14 @@ export async function createHTTPJob<T>(
 ): Promise<T> {
   try {
     const response = await fetch(request);
+
+    if (!response.ok) {
+      console.error("HTTP Error Response:", await response.text());
+      throw new Error(
+        `Server error: ${response.status} ${response.statusText}`,
+      );
+    }
+
     return await handleResponse(response);
   } catch (error) {
     if (error instanceof Error) {
