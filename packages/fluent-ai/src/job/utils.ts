@@ -30,7 +30,7 @@ export function transformUsageData(usage?: any) {
 
 export async function* createStreamingGenerator(
   response: Response,
-  convertChunk: any,
+  convertChunk: (chunk: any) => MessageChunk,
 ) {
   const decoder = new TextDecoder("utf-8");
   const reader = response.body!.getReader();

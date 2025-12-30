@@ -72,7 +72,7 @@ interface OllamaChunk {
   message: {
     role: string;
     content: string;
-    thinking?: string;
+    thinking: string;
     tool_calls?: {
       id: string;
       function: {
@@ -114,12 +114,9 @@ export const runner = {
       body: JSON.stringify({
         model: input.model,
         messages: messages,
-        temperature: input.temperature,
         tools: tools,
+        temperature: input.temperature,
         stream: input.stream ?? false,
-        options: {
-          num_predict: input.maxTokens,
-        },
       }),
     });
 

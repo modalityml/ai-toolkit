@@ -78,16 +78,16 @@ export class Agent<TContext = any> {
   ) {
     const body = agentSchema.parse(this.body);
 
-    let shouldBreak = false;
+    let shouldFinish = false;
     let newMessages: Message[] = [];
     for (let iteration = 0; iteration < options.maxSteps; iteration++) {
-      if (shouldBreak) {
+      if (shouldFinish) {
         break;
       }
 
       const instructions =
         typeof body.instructions === "function"
-          ? body.instructions()
+          ? body.instructions() // TODO: more context
           : body.instructions;
       const systemMessage = { role: "system", text: instructions };
       const messages = ([systemMessage] as Message[]).concat(
@@ -104,9 +104,28 @@ export class Agent<TContext = any> {
         .stream()
         .run();
 
-      let totalText = "";
+      let newAssistantMessage: AssistantMessage = {
+        role: "assistant",
+        text: "",
+        reasoning: "",
+      };
+
       for await (const chunk of result as AsyncIterable<MessageChunk>) {
         if (chunk.toolCalls) {
+          // existing assistant message chunked out before tool call
+          if (newAssistantMessage.text || newAssistantMessage.reasoning) {
+            yield {
+              type: "message",
+              message: newAssistantMessage,
+            } as MessageEvent;
+            newMessages.push(newAssistantMessage);
+            newAssistantMessage = {
+              role: "assistant",
+              text: "",
+              reasoning: "",
+            };
+          }
+
           const toolCall = chunk.toolCalls[0];
           const { name, arguments: args } = toolCall.function;
           const agentTool = body.tools.find((t) => t.name === name);
@@ -141,8 +160,9 @@ export class Agent<TContext = any> {
             },
           };
 
+          yield { type: "message", message: newMessage } as MessageEvent;
           newMessages.push(newMessage);
-          shouldBreak = false;
+          shouldFinish = false;
         } else if (chunk.text || chunk.reasoning) {
           yield {
             type: "chunk",
@@ -153,21 +173,18 @@ export class Agent<TContext = any> {
           } as ChunkEvent;
 
           if (chunk.text) {
-            totalText += chunk.text;
+            newAssistantMessage.text += chunk.text;
           }
-          shouldBreak = true;
+          if (chunk.reasoning) {
+            newAssistantMessage.reasoning += chunk.reasoning;
+          }
+          shouldFinish = true;
         }
       }
 
-      if (totalText.trim()) {
-        const newMessage: AssistantMessage = {
-          role: "assistant",
-          text: totalText,
-        };
-
-        yield { type: "message", message: newMessage } as MessageEvent;
-        newMessages.push(newMessage);
-        shouldBreak = true;
+      if (newAssistantMessage.text || newAssistantMessage.reasoning) {
+        yield { type: "message", message: newAssistantMessage } as MessageEvent;
+        newMessages.push(newAssistantMessage);
       }
     }
   };
